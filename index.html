@@ -2,131 +2,141 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>초보자의 모험</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>모험의 섬 - 미니 2D RPG</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#111827;color:white;font-family:Arial,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
-#gameWrap{position:relative;width:min(100vw,1100px)}canvas{display:block;width:100%;height:auto;background:#87ceeb;border:4px solid #111827;image-rendering:pixelated}
-#help{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);padding:8px 14px;border-radius:8px;font-size:14px;white-space:nowrap}
+*{box-sizing:border-box}body{margin:0;background:#101827;font-family:Arial,sans-serif;color:#fff;display:flex;justify-content:center;min-height:100vh}
+#wrap{width:min(1100px,100vw);padding:12px}canvas{width:100%;display:block;border:3px solid #0b1020;background:#8bd4ff;image-rendering:pixelated}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:9px 14px;background:#3949ab;color:#fff;font-weight:bold}
+button:hover{filter:brightness(1.15)}.screen{position:absolute;inset:0;background:rgba(10,15,30,.92);display:flex;align-items:center;justify-content:center}
+.panel{background:#202943;border:2px solid #6173a6;border-radius:16px;padding:22px;max-width:900px;width:92%;box-shadow:0 15px 50px #0008}
+.hidden{display:none!important}.jobs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.job{padding:16px;background:#303b5c;border:2px solid #4d5d8d;border-radius:12px;text-align:center}.job.selected{border-color:#ffe082;background:#3d4c72}.job .icon{font-size:42px}.job h3{margin:8px 0}.job p{font-size:13px;color:#cbd5e1;min-height:42px}.row{display:flex;gap:10px;justify-content:center;margin-top:18px}.save{font-size:12px;color:#aab6d2;margin-top:12px}
+#ui{position:relative}.modal{position:absolute;top:25px;left:50%;transform:translateX(-50%);z-index:5;width:390px;background:#202943;border:2px solid #6173a6;border-radius:14px;padding:18px;box-shadow:0 10px 40px #0008}.modal h2{margin-top:0}.item{display:flex;justify-content:space-between;align-items:center;padding:10px;background:#303b5c;border-radius:8px;margin:7px 0}.item small{color:#cbd5e1}.close{float:right;background:#5c667f;padding:5px 9px}
+@media(max-width:750px){.jobs{grid-template-columns:repeat(2,1fr)}#help{font-size:11px!important}.modal{width:92%}}
 </style>
 </head>
 <body>
-<div id="gameWrap"><canvas id="game" width="1100" height="650"></canvas><div id="help">← → 이동　SPACE 점프　Z 공격　X 물약</div></div>
+<div id="wrap">
+<div id="ui">
+<canvas id="game" width="1100" height="650"></canvas>
+<div id="help" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#000b;padding:7px 12px;border-radius:8px;font-size:13px">← → 이동 · SPACE 점프 · Z 공격 · X 포션 · E NPC/상점 · I 장비</div>
+
+<div id="start" class="screen">
+ <div class="panel">
+  <h1 style="text-align:center">🌟 모험의 섬</h1>
+  <p style="text-align:center;color:#cbd5e1">오리지널 2D 횡스크롤 RPG · 저장은 이 브라우저에 자동 보관됩니다.</p>
+  <h2>캐릭터 선택</h2>
+  <div class="jobs" id="jobs"></div>
+  <div class="row"><button id="startBtn">모험 시작</button><button id="loadBtn">저장 데이터 불러오기</button></div>
+  <div class="save" id="saveInfo"></div>
+ </div>
+</div>
+
+<div id="modal" class="modal hidden"></div>
+</div>
+</div>
+
 <script>
-const canvas=document.getElementById("game"),ctx=canvas.getContext("2d"),W=canvas.width,H=canvas.height;
-const keys={};let cameraX=0,gameOver=false,victory=false;
-window.addEventListener("keydown",e=>{keys[e.code]=true;if(["ArrowLeft","ArrowRight","Space"].includes(e.code))e.preventDefault();if(e.code==="KeyZ")attack();if(e.code==="KeyX")usePotion();if(gameOver&&e.code==="Enter")resetGame()});
-window.addEventListener("keyup",e=>keys[e.code]=false);
-const gravity=.7;
-const player={x:250,y:400,w:38,h:58,vx:0,vy:0,speed:5,jump:14,hp:100,maxHp:100,mp:50,maxMp:50,level:1,exp:0,nextExp:100,gold:0,potions:5,facing:1,attacking:false,attackTimer:0,grounded:false,invincible:0};
-const platforms=[
-{x:-500,y:570,w:1600,h:100},{x:1200,y:570,w:1200,h:100},{x:400,y:460,w:220,h:30},
-{x:750,y:390,w:220,h:30},{x:1050,y:480,w:180,h:30},{x:1450,y:450,w:220,h:30},
-{x:1800,y:350,w:220,h:30},{x:2150,y:450,w:220,h:30}];
-function createMonster(x,y,type,hp,exp){return{x,y,w:44,h:42,vx:0,vy:0,type,hp,maxHp:hp,exp,alive:true,attackCooldown:0,hitFlash:0}}
-const monsters=[
-createMonster(600,510,"슬라임",35,15),createMonster(850,330,"슬라임",40,20),createMonster(1120,430,"버섯",50,25),
-createMonster(1500,400,"버섯",55,30),createMonster(1850,290,"고블린",70,40),createMonster(2200,400,"고블린",80,50)];
-const particles=[],floatingTexts=[];
-function spawnParticle(x,y,color){particles.push({x,y,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,life:25,color})}
-function textPop(x,y,text,color="#fff"){floatingTexts.push({x,y,text,color,life:45})}
-function rectsOverlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
-function updatePlayer(){
- if(gameOver||victory)return;
- if(keys.ArrowLeft){player.vx=-player.speed;player.facing=-1}else if(keys.ArrowRight){player.vx=player.speed;player.facing=1}else player.vx*=.75;
- if(keys.Space&&player.grounded){player.vy=-player.jump;player.grounded=false;keys.Space=false}
- player.vy+=gravity;player.x+=player.vx;player.y+=player.vy;player.grounded=false;
- for(const p of platforms)if(player.x+player.w>p.x&&player.x<p.x+p.w&&player.y+player.h>=p.y&&player.y+player.h<=p.y+25&&player.vy>=0){player.y=p.y-player.h;player.vy=0;player.grounded=true}
- if(player.y>H+200)player.hp=0;
- if(player.invincible>0)player.invincible--;
- if(player.attackTimer>0)player.attackTimer--;else player.attacking=false;
- cameraX+=(player.x-cameraX-350)*.08;cameraX=Math.max(0,Math.min(cameraX,1450));
+const C=document.getElementById('game'),ctx=C.getContext('2d'),W=C.width,H=C.height;
+const jobs=[
+ {id:'warrior',name:'전사',icon:'⚔️',desc:'높은 체력과 강력한 근접 공격',hp:140,mp:45,atk:22,def:8,color:'#ef5350'},
+ {id:'archer',name:'궁수',icon:'🏹',desc:'빠른 공격과 긴 사거리',hp:95,mp:70,atk:19,def:4,color:'#66bb6a'},
+ {id:'mage',name:'마법사',icon:'🔮',desc:'마법으로 큰 피해를 주는 원거리 직업',hp:80,mp:120,atk:27,def:3,color:'#7e57c2'},
+ {id:'thief',name:'도적',icon:'🗡️',desc:'빠른 이동과 높은 치명타 확률',hp:105,mp:65,atk:21,def:5,color:'#26a69a'}
+];
+let selected='warrior',gameStarted=false,camera=0,keys={},gameOver=false,victory=false,shopOpen=false,invOpen=false;
+const player={x:260,y:400,w:38,h:58,vx:0,vy:0,ground:false,facing:1,hp:100,maxHp:100,mp:50,maxMp:50,level:1,exp:0,nextExp:100,gold:150,potions:3,atk:20,def:5,job:'warrior',weapon:'초보자의 검',armor:'모험가의 옷',crit:.08,attackTimer:0,inv:0};
+const platforms=[{x:-500,y:570,w:1550,h:100},{x:1150,y:570,w:1500,h:100},{x:400,y:465,w:210,h:25},{x:730,y:390,w:220,h:25},{x:1030,y:475,w:180,h:25},{x:1430,y:440,w:220,h:25},{x:1790,y:350,w:230,h:25},{x:2130,y:450,w:220,h:25}];
+let monsters=[
+ {x:600,y:520,w:44,h:40,hp:40,max:40,exp:18,gold:18,type:'슬라임',alive:true,cd:0},
+ {x:830,y:340,w:44,h:40,hp:55,max:55,exp:25,gold:25,type:'버섯',alive:true,cd:0},
+ {x:1100,y:430,w:44,h:40,hp:70,max:70,exp:32,gold:35,type:'버섯',alive:true,cd:0},
+ {x:1500,y:395,w:48,h:45,hp:90,max:90,exp:45,gold:55,type:'고블린',alive:true,cd:0},
+ {x:1860,y:295,w:48,h:45,hp:120,max:120,exp:60,gold:80,type:'고블린',alive:true,cd:0}
+];
+const particles=[],texts=[];
+function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function pop(x,y,t,c='#fff'){texts.push({x,y,t,c,l:45})}
+function particle(x,y,c){particles.push({x,y,vx:(Math.random()-.5)*4,vy:(Math.random()-.7)*4,l:25,c})}
+function selectJob(id){selected=id;document.querySelectorAll('.job').forEach(e=>e.classList.toggle('selected',e.dataset.id===id))}
+function renderJobs(){document.getElementById('jobs').innerHTML=jobs.map(j=>`<div class="job ${j.id===selected?'selected':''}" data-id="${j.id}" onclick="selectJob('${j.id}')"><div class="icon">${j.icon}</div><h3>${j.name}</h3><p>${j.desc}</p><small>HP ${j.hp} · MP ${j.mp} · 공격 ${j.atk}</small></div>`).join('')}
+renderJobs();
+function newGame(){
+ const j=jobs.find(x=>x.id===selected);Object.assign(player,{x:260,y:400,vx:0,vy:0,hp:j.hp,maxHp:j.hp,mp:j.mp,maxMp:j.mp,level:1,exp:0,nextExp:100,gold:150,potions:3,atk:j.atk,def:j.def,job:j.id,weapon:j.id==='warrior'?'초보자의 검':j.id==='archer'?'초보자의 활':j.id==='mage'?'초보자의 지팡이':'초보자의 단검',armor:'모험가의 옷',crit:j.id==='thief'?.18:j.id==='archer'?.12:.08,attackTimer:0,inv:0});
+ resetWorld();gameStarted=true;document.getElementById('start').classList.add('hidden');saveGame();
 }
+function resetWorld(){camera=0;gameOver=false;victory=false;shopOpen=false;invOpen=false;monsters=[
+ {x:600,y:520,w:44,h:40,hp:40,max:40,exp:18,gold:18,type:'슬라임',alive:true,cd:0},{x:830,y:340,w:44,h:40,hp:55,max:55,exp:25,gold:25,type:'버섯',alive:true,cd:0},{x:1100,y:430,w:44,h:40,hp:70,max:70,exp:32,gold:35,type:'버섯',alive:true,cd:0},{x:1500,y:395,w:48,h:45,hp:90,max:90,exp:45,gold:55,type:'고블린',alive:true,cd:0},{x:1860,y:295,w:48,h:45,hp:120,max:120,exp:60,gold:80,type:'고블린',alive:true,cd:0}]}
+function saveGame(){localStorage.setItem('miniRPGSave',JSON.stringify({player,selected}));document.getElementById('saveInfo').textContent='저장 데이터가 있습니다.'}
+function loadGame(){
+ const s=localStorage.getItem('miniRPGSave');if(!s)return alert('저장 데이터가 없습니다.');
+ const d=JSON.parse(s);Object.assign(player,d.player);selected=d.selected||player.job;resetWorld();gameStarted=true;document.getElementById('start').classList.add('hidden');pop(player.x,player.y-20,'불러오기 완료','#8cff98')
+}
+document.getElementById('startBtn').onclick=newGame;document.getElementById('loadBtn').onclick=loadGame;
+if(localStorage.getItem('miniRPGSave'))document.getElementById('saveInfo').textContent='저장 데이터가 있습니다.';
+window.addEventListener('keydown',e=>{keys[e.code]=true;if(['ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(!gameStarted)return;if(e.code==='KeyZ')attack();if(e.code==='KeyX')potion();if(e.code==='KeyE')interact();if(e.code==='KeyI')toggleInventory();if(e.code==='KeyP')saveGame();if(gameOver&&e.code==='Enter'){resetWorld();player.hp=player.maxHp;gameOver=false;victory=false}})
+window.addEventListener('keyup',e=>keys[e.code]=false);
 function attack(){
- if(gameOver||victory||player.attackTimer>0)return;
- player.attacking=true;player.attackTimer=25;
- const hit={x:player.facing===1?player.x+player.w:player.x-70,y:player.y+10,w:70,h:40};
- let hitSomething=false;
- for(const m of monsters){if(!m.alive)continue;if(rectsOverlap(hit,m)){
-  const damage=Math.floor(15+player.level*7+Math.random()*10);m.hp-=damage;m.hitFlash=8;
-  textPop(m.x,m.y-15,"-"+damage,"#ffeb3b");for(let i=0;i<8;i++)spawnParticle(m.x+m.w/2,m.y+m.h/2,"#fff");
-  hitSomething=true;if(m.hp<=0)killMonster(m);
- }}
- if(!hitSomething)for(let i=0;i<4;i++)spawnParticle(player.x+player.w/2+player.facing*40,player.y+30,"#ffe082");
-}
-function killMonster(m){
- m.alive=false;player.exp+=m.exp;player.gold+=Math.floor(10+Math.random()*30);textPop(m.x,m.y-30,"+"+m.exp+" EXP","#7cff8a");
- for(let i=0;i<15;i++)spawnParticle(m.x+m.w/2,m.y+m.h/2,"#9cdbff");checkLevelUp();
- if(monsters.every(m=>!m.alive))victory=true;
-}
-function checkLevelUp(){
- while(player.exp>=player.nextExp){player.exp-=player.nextExp;player.level++;player.nextExp=Math.floor(player.nextExp*1.35);
- player.maxHp+=25;player.hp=player.maxHp;player.maxMp+=10;player.mp=player.maxMp;textPop(player.x,player.y-40,"LEVEL UP!","#ffe600");
- for(let i=0;i<25;i++)spawnParticle(player.x+player.w/2,player.y+player.h/2,"#ffd54f")}
-}
-function usePotion(){if(player.potions<=0||player.hp>=player.maxHp)return;player.potions--;player.hp=Math.min(player.maxHp,player.hp+50);textPop(player.x,player.y-20,"+50 HP","#ff6b6b")}
-function updateMonsters(){
- if(gameOver||victory)return;
- for(const m of monsters){if(!m.alive)continue;if(m.hitFlash>0)m.hitFlash--;const d=player.x-m.x;
-  if(Math.abs(d)<350)m.vx=d>0?1.1:-1.1;else m.vx*=.8;m.vy+=gravity;m.x+=m.vx;m.y+=m.vy;
-  for(const p of platforms)if(m.x+m.w>p.x&&m.x<p.x+p.w&&m.y+m.h>=p.y&&m.y+m.h<=p.y+25&&m.vy>=0){m.y=p.y-m.h;m.vy=0}
-  if(m.attackCooldown>0)m.attackCooldown--;
-  if(rectsOverlap(player,m)&&m.attackCooldown<=0&&player.invincible<=0){const damage=8+Math.floor(m.maxHp/25);player.hp-=damage;player.invincible=45;m.attackCooldown=60;textPop(player.x,player.y-20,"-"+damage,"#ff5252");player.vy=-5}
+ if(player.attackTimer>0||shopOpen||invOpen||gameOver||victory)return;player.attackTimer=22;
+ const range={x:player.facing>0?player.x+player.w:player.x-85,y:player.y+8,w:85,h:45};
+ for(const m of monsters)if(m.alive&&overlap(range,m)){
+  let dmg=player.atk+Math.floor(Math.random()*9);if(Math.random()<player.crit){dmg*=2;pop(m.x,m.y-25,'CRITICAL!','#ffe082')}
+  m.hp-=dmg;pop(m.x,m.y-10,'-'+dmg,'#ffeb3b');for(let i=0;i<7;i++)particle(m.x+22,m.y+20,'#fff');
+  if(m.hp<=0){m.alive=false;player.exp+=m.exp;player.gold+=m.gold;pop(m.x,m.y-35,'+'+m.exp+' EXP','#8cff98');levelUp()}
  }
- if(player.hp<=0)gameOver=true;
 }
-function updateEffects(){
- for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.08;p.life--;if(p.life<=0)particles.splice(i,1)}
- for(let i=floatingTexts.length-1;i>=0;i--){const t=floatingTexts[i];t.y-=.7;t.life--;if(t.life<=0)floatingTexts.splice(i,1)}
+function levelUp(){while(player.exp>=player.nextExp){player.exp-=player.nextExp;player.level++;player.nextExp=Math.floor(player.nextExp*1.35);player.maxHp+=18;player.maxMp+=9;player.atk+=3;player.def+=1;player.hp=player.maxHp;player.mp=player.maxMp;pop(player.x,player.y-40,'LEVEL UP!','#ffe082');for(let i=0;i<20;i++)particle(player.x+19,player.y+25,'#ffe082')}saveGame();if(monsters.every(m=>!m.alive))victory=true}
+function potion(){if(player.potions>0&&player.hp<player.maxHp){player.potions--;player.hp=Math.min(player.maxHp,player.hp+50);pop(player.x,player.y-15,'+50 HP','#ff7777')}}
+function nearNPC(){return Math.abs(player.x-310)<90}
+function interact(){if(nearNPC())openShop()}
+function openShop(){shopOpen=true;renderShop()}
+function closeModal(){shopOpen=false;invOpen=false;document.getElementById('modal').classList.add('hidden')}
+function renderShop(){
+ const m=document.getElementById('modal');m.classList.remove('hidden');m.innerHTML=`<button class="close" onclick="closeModal()">X</button><h2>🏪 마을 상점</h2><p>골드: <b>${player.gold}</b></p>
+ <div class="item"><span>❤️ HP 포션 <small>HP +50</small></span><button onclick="buyPotion()">30 G</button></div>
+ <div class="item"><span>⚔️ 강철 무기 <small>공격력 +8</small></span><button onclick="buyWeapon()">180 G</button></div>
+ <div class="item"><span>🛡️ 튼튼한 갑옷 <small>방어력 +5</small></span><button onclick="buyArmor()">160 G</button></div>
+ <p style="color:#aab6d2;font-size:13px">E: NPC/상점 · I: 장비창 · P: 저장</p>`}
+function buyPotion(){if(player.gold>=30){player.gold-=30;player.potions++;pop(player.x,player.y-20,'포션 구매','#8cff98');saveGame();renderShop()}else alert('골드가 부족합니다.')}
+function buyWeapon(){if(player.weapon==='강철 무기')return alert('이미 구매했습니다.');if(player.gold>=180){player.gold-=180;player.atk+=8;player.weapon='강철 무기';saveGame();renderShop()}else alert('골드가 부족합니다.')}
+function buyArmor(){if(player.armor==='튼튼한 갑옷')return alert('이미 구매했습니다.');if(player.gold>=160){player.gold-=160;player.def+=5;player.armor='튼튼한 갑옷';saveGame();renderShop()}else alert('골드가 부족합니다.')}
+function toggleInventory(){if(shopOpen)return;invOpen=!invOpen;const m=document.getElementById('modal');if(invOpen){m.classList.remove('hidden');m.innerHTML=`<button class="close" onclick="toggleInventory()">X</button><h2>🎒 장비</h2><div class="item"><span>직업</span><b>${jobs.find(j=>j.id===player.job).name}</b></div><div class="item"><span>무기</span><b>${player.weapon}</b></div><div class="item"><span>방어구</span><b>${player.armor}</b></div><div class="item"><span>공격력</span><b>${player.atk}</b></div><div class="item"><span>방어력</span><b>${player.def}</b></div><div class="item"><span>치명타</span><b>${Math.round(player.crit*100)}%</b></div><div class="item"><span>포션</span><b>${player.potions}개</b></div>`}else m.classList.add('hidden')}
+function update(){
+ if(!gameStarted||shopOpen||invOpen||gameOver||victory)return;
+ if(keys.ArrowLeft){player.vx=-5;player.facing=-1}else if(keys.ArrowRight){player.vx=5;player.facing=1}else player.vx*=.75;
+ if(keys.Space&&player.ground){player.vy=-14;player.ground=false;keys.Space=false}
+ player.vy+=.7;player.x+=player.vx;player.y+=player.vy;player.ground=false;
+ for(const p of platforms)if(player.x+player.w>p.x&&player.x<p.x+p.w&&player.y+player.h>=p.y&&player.y+player.h<=p.y+25&&player.vy>=0){player.y=p.y-player.h;player.vy=0;player.ground=true}
+ if(player.inv>0)player.inv--;if(player.attackTimer>0)player.attackTimer--;
+ camera+=(player.x-camera-330)*.08;camera=Math.max(0,Math.min(camera,1500));
+ for(const m of monsters){if(!m.alive)continue;let d=player.x-m.x;if(Math.abs(d)<330)m.x+=d>0?1.05:-1.05;m.y+=m.vy;m.vy+=.7;
+  for(const p of platforms)if(m.x+m.w>p.x&&m.x<p.x+p.w&&m.y+m.h>=p.y&&m.y+m.h<=p.y+25&&m.vy>=0){m.y=p.y-m.h;m.vy=0}
+  if(m.cd>0)m.cd--;if(overlap(player,m)&&m.cd<=0&&player.inv<=0){const dmg=Math.max(2,8-player.def*.35);player.hp-=dmg;player.inv=40;m.cd=55;player.vy=-5;pop(player.x,player.y-15,'-'+Math.floor(dmg),'#ff5252')}}
+ if(player.hp<=0){gameOver=true;saveGame()}
+ if(player.y>800){player.hp=0;gameOver=true}
+ for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.08;p.l--;if(p.l<=0)particles.splice(i,1)}
+ for(let i=texts.length-1;i>=0;i--){let t=texts[i];t.y-=.7;t.l--;if(t.l<=0)texts.splice(i,1)}
 }
-function drawBackground(){
- const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#75c9ff");g.addColorStop(1,"#d9f3ff");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
- ctx.fillStyle="rgba(255,255,255,.8)";
- for(let i=0;i<8;i++){const x=((i*230-cameraX*.2)%1300)-100,y=70+(i%3)*65;ctx.beginPath();ctx.arc(x,y,25,0,Math.PI*2);ctx.arc(x+30,y-10,35,0,Math.PI*2);ctx.arc(x+65,y,25,0,Math.PI*2);ctx.fill()}
- ctx.fillStyle="#9cc9a0";for(let i=0;i<10;i++){const x=i*180-(cameraX*.35%180);ctx.beginPath();ctx.moveTo(x-120,570);ctx.lineTo(x,300);ctx.lineTo(x+150,570);ctx.fill()}
- for(let i=0;i<15;i++){const x=i*180-cameraX*.55;ctx.fillStyle="#795548";ctx.fillRect(x,430,22,140);ctx.fillStyle="#4caf50";ctx.beginPath();ctx.arc(x+10,410,55,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x-20,435,35,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+40,435,35,0,Math.PI*2);ctx.fill()}
-}
-function drawPlatforms(){for(const p of platforms){const x=p.x-cameraX;ctx.fillStyle="#76502c";ctx.fillRect(x,p.y,p.w,p.h);ctx.fillStyle="#4caf50";ctx.fillRect(x,p.y,p.w,12);ctx.fillStyle="#8bc34a";ctx.fillRect(x,p.y,p.w,4)}}
-function drawPlayer(){
- const x=player.x-cameraX,y=player.y;if(player.invincible>0&&Math.floor(player.invincible/4)%2===0)return;
- ctx.fillStyle="rgba(0,0,0,.2)";ctx.beginPath();ctx.ellipse(x+19,y+59,25,7,0,0,Math.PI*2);ctx.fill();
- ctx.fillStyle="#303f9f";ctx.fillRect(x+5,y+38,11,20);ctx.fillRect(x+23,y+38,11,20);ctx.fillStyle="#e53935";ctx.fillRect(x+4,y+18,30,25);
- ctx.fillStyle="#ffd1a9";ctx.fillRect(x+7,y+2,25,22);ctx.fillStyle="#5d4037";ctx.fillRect(x+6,y,27,8);
- ctx.fillStyle="#111";const eyeX=player.facing===1?x+25:x+10;ctx.fillRect(eyeX,y+10,4,4);
- ctx.save();ctx.translate(x+19,y+31);ctx.scale(player.facing,1);ctx.rotate(player.attacking?-.5:.7);ctx.fillStyle="#ddd";ctx.fillRect(8,-4,player.attacking?65:45,8);ctx.fillStyle="#ffc107";ctx.fillRect(2,-7,10,14);ctx.restore();
-}
-function drawMonster(m){
- if(!m.alive)return;const x=m.x-cameraX,y=m.y;if(m.hitFlash>0)ctx.globalAlpha=.5;
- if(m.type==="슬라임"){ctx.fillStyle="#62d6ff";ctx.beginPath();ctx.arc(x+22,y+25,22,Math.PI,0);ctx.lineTo(x+44,y+38);ctx.lineTo(x,y+38);ctx.closePath();ctx.fill();ctx.fillStyle="#222";ctx.fillRect(x+12,y+22,4,5);ctx.fillRect(x+28,y+22,4,5)}
- if(m.type==="버섯"){ctx.fillStyle="#ff7043";ctx.beginPath();ctx.arc(x+22,y+17,24,Math.PI,0);ctx.fill();ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(x+13,y+10,5,0,Math.PI*2);ctx.arc(x+29,y+8,5,0,Math.PI*2);ctx.fill();ctx.fillStyle="#ffd1a9";ctx.fillRect(x+10,y+18,24,20)}
- if(m.type==="고블린"){ctx.fillStyle="#66bb6a";ctx.fillRect(x+6,y+8,32,32);ctx.fillStyle="#388e3c";ctx.beginPath();ctx.moveTo(x+6,y+13);ctx.lineTo(x-3,y+3);ctx.lineTo(x+10,y+8);ctx.fill();ctx.beginPath();ctx.moveTo(x+38,y+13);ctx.lineTo(x+47,y+3);ctx.lineTo(x+34,y+8);ctx.fill();ctx.fillStyle="#111";ctx.fillRect(x+13,y+20,5,5);ctx.fillRect(x+27,y+20,5,5)}
- ctx.globalAlpha=1;const ratio=Math.max(0,m.hp/m.maxHp);ctx.fillStyle="#222";ctx.fillRect(x-3,y-12,56,7);ctx.fillStyle="#ef5350";ctx.fillRect(x,y-10,50*ratio,3)
-}
-function drawEffects(){
- for(const p of particles){ctx.globalAlpha=p.life/25;ctx.fillStyle=p.color;ctx.fillRect(p.x-cameraX,p.y,5,5)}ctx.globalAlpha=1;
- for(const t of floatingTexts){ctx.globalAlpha=t.life/45;ctx.font="bold 18px Arial";ctx.fillStyle=t.color;ctx.textAlign="center";ctx.fillText(t.text,t.x-cameraX,t.y)}
- ctx.globalAlpha=1;ctx.textAlign="left";
-}
-function drawUI(){
- ctx.fillStyle="rgba(20,20,35,.82)";ctx.fillRect(15,15,350,105);ctx.fillStyle="#fff";ctx.font="bold 18px Arial";ctx.fillText("초보자의 모험",30,40);
- ctx.font="14px Arial";ctx.fillText(`Lv.${player.level}   골드: ${player.gold}   물약: ${player.potions}`,30,62);
- ctx.fillStyle="#333";ctx.fillRect(30,72,180,14);ctx.fillStyle="#ef5350";ctx.fillRect(30,72,180*(player.hp/player.maxHp),14);ctx.fillStyle="#fff";ctx.font="11px Arial";ctx.fillText(`${Math.max(0,player.hp)} / ${player.maxHp}`,90,83);
- ctx.fillStyle="#333";ctx.fillRect(220,72,125,14);ctx.fillStyle="#7e57c2";ctx.fillRect(220,72,125*(player.exp/player.nextExp),14);ctx.fillStyle="#fff";ctx.fillText("EXP",270,83);
-}
-function drawGoal(){const x=2280-cameraX;ctx.fillStyle="#6d4c41";ctx.fillRect(x,380,90,190);ctx.fillStyle="#ffca28";ctx.fillRect(x+20,400,50,40);ctx.fillStyle="#fff";ctx.font="bold 14px Arial";ctx.fillText("BOSS",x+20,425)}
-function drawOverlay(){
- if(!gameOver&&!victory)return;ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,0,W,H);ctx.textAlign="center";
- if(victory){ctx.fillStyle="#ffe082";ctx.font="bold 52px Arial";ctx.fillText("모든 몬스터 처치!",W/2,H/2-45);ctx.fillStyle="#fff";ctx.font="22px Arial";ctx.fillText(`Lv.${player.level}  ·  ${player.gold} Gold`,W/2,H/2+5)}
- else{ctx.fillStyle="#ff5252";ctx.font="bold 60px Arial";ctx.fillText("GAME OVER",W/2,H/2-30);ctx.fillStyle="#fff";ctx.font="20px Arial";ctx.fillText("ENTER를 눌러 다시 시작",W/2,H/2+25)}
- ctx.textAlign="left";
-}
-function resetGame(){
- Object.assign(player,{x:250,y:400,vx:0,vy:0,hp:100,maxHp:100,mp:50,maxMp:50,level:1,exp:0,nextExp:100,gold:0,potions:5});
- cameraX=0;gameOver=false;victory=false;monsters.splice(0);
- monsters.push(createMonster(600,510,"슬라임",35,15),createMonster(850,330,"슬라임",40,20),createMonster(1120,430,"버섯",50,25),createMonster(1500,400,"버섯",55,30),createMonster(1850,290,"고블린",70,40),createMonster(2200,400,"고블린",80,50));
-}
-function draw(){ctx.clearRect(0,0,W,H);drawBackground();drawPlatforms();drawGoal();for(const m of monsters)drawMonster(m);drawPlayer();drawEffects();drawUI();drawOverlay()}
-function gameLoop(){updatePlayer();updateMonsters();updateEffects();draw();requestAnimationFrame(gameLoop)}gameLoop();
+function draw(){
+ const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#72caff');g.addColorStop(1,'#dff7ff');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#9bc8a2';for(let i=0;i<10;i++){let x=i*190-camera*.35;ctx.beginPath();ctx.moveTo(x-120,570);ctx.lineTo(x,300);ctx.lineTo(x+150,570);ctx.fill()}
+ for(let i=0;i<13;i++){let x=i*190-camera*.55;ctx.fillStyle='#795548';ctx.fillRect(x,425,20,145);ctx.fillStyle='#4caf50';ctx.beginPath();ctx.arc(x+10,405,48,0,Math.PI*2);ctx.fill()}
+ for(const p of platforms){let x=p.x-camera;ctx.fillStyle='#79502c';ctx.fillRect(x,p.y,p.w,p.h);ctx.fillStyle='#4caf50';ctx.fillRect(x,p.y,p.w,11)}
+ // NPC
+ let nx=310-camera;ctx.fillStyle='#795548';ctx.fillRect(nx+5,475,28,70);ctx.fillStyle='#ffd1a9';ctx.beginPath();ctx.arc(nx+19,457,20,0,Math.PI*2);ctx.fill();ctx.fillStyle='#ffca28';ctx.fillRect(nx-2,430,42,15);ctx.fillStyle='#222';ctx.fillRect(nx+11,455,4,4);ctx.fillRect(nx+25,455,4,4);ctx.fillStyle='#fff';ctx.font='bold 15px Arial';ctx.fillText('상인 루나',nx-20,410);if(nearNPC())ctx.fillText('E : 상점',nx-15,392);
+ // goal
+ let gx=2320-camera;ctx.fillStyle='#5d4037';ctx.fillRect(gx,385,80,185);ctx.fillStyle='#ffca28';ctx.fillRect(gx+15,405,50,35);ctx.fillStyle='#fff';ctx.font='bold 13px Arial';ctx.fillText('GOAL',gx+19,428);
+ // monsters
+ for(const m of monsters)if(m.alive){let x=m.x-camera,y=m.y;ctx.fillStyle=m.type==='슬라임'?'#4fc3f7':m.type==='버섯'?'#ff7043':'#66bb6a';ctx.beginPath();ctx.arc(x+22,y+22,23,Math.PI,0);ctx.lineTo(x+45,y+40);ctx.lineTo(x,y+40);ctx.closePath();ctx.fill();ctx.fillStyle='#222';ctx.fillRect(x+12,y+21,4,5);ctx.fillRect(x+29,y+21,4,5);ctx.fillStyle='#222';ctx.fillRect(x,y-10,52,6);ctx.fillStyle='#ef5350';ctx.fillRect(x+1,y-9,50*Math.max(0,m.hp/m.max),4)}
+ // player
+ let x=player.x-camera,y=player.y;if(!(player.inv>0&&Math.floor(player.inv/4)%2===0)){ctx.fillStyle='#303f9f';ctx.fillRect(x+5,y+38,11,20);ctx.fillRect(x+23,y+38,11,20);ctx.fillStyle=jobs.find(j=>j.id===player.job).color;ctx.fillRect(x+4,y+18,30,25);ctx.fillStyle='#ffd1a9';ctx.fillRect(x+7,y+2,25,22);ctx.fillStyle='#5d4037';ctx.fillRect(x+6,y,27,8);ctx.fillStyle='#111';ctx.fillRect(player.facing>0?x+25:x+10,y+10,4,4);ctx.save();ctx.translate(x+19,y+31);ctx.scale(player.facing,1);ctx.rotate(player.attackTimer>0?-.5:.7);ctx.fillStyle='#ddd';ctx.fillRect(8,-4,player.attackTimer>0?65:45,8);ctx.fillStyle='#ffc107';ctx.fillRect(2,-7,10,14);ctx.restore()}
+ // particles/text
+ for(const p of particles){ctx.globalAlpha=p.l/25;ctx.fillStyle=p.c;ctx.fillRect(p.x-camera,p.y,5,5)}ctx.globalAlpha=1;ctx.textAlign='center';for(const t of texts){ctx.globalAlpha=t.l/45;ctx.fillStyle=t.c;ctx.font='bold 17px Arial';ctx.fillText(t.t,t.x-camera,t.y)}ctx.globalAlpha=1;ctx.textAlign='left';
+ // UI
+ ctx.fillStyle='#10172bdd';ctx.fillRect(15,15,390,105);ctx.fillStyle='#fff';ctx.font='bold 18px Arial';ctx.fillText(`Lv.${player.level} ${jobs.find(j=>j.id===player.job).icon} ${jobs.find(j=>j.id===player.job).name}`,30,40);ctx.font='14px Arial';ctx.fillText(`💰 ${player.gold}   🧪 ${player.potions}   ⚔ ${player.atk}   🛡 ${player.def}`,30,62);
+ ctx.fillStyle='#333';ctx.fillRect(30,75,180,13);ctx.fillStyle='#ef5350';ctx.fillRect(30,75,180*player.hp/player.maxHp,13);ctx.fillStyle='#333';ctx.fillRect(220,75,155,13);ctx.fillStyle='#7e57c2';ctx.fillRect(220,75,155*player.exp/player.nextExp,13);ctx.fillStyle='#fff';ctx.font='11px Arial';ctx.fillText(`HP ${Math.max(0,Math.floor(player.hp))}/${player.maxHp}`,80,85);ctx.fillText(`EXP ${player.exp}/${player.nextExp}`,265,85);
+ if(gameOver||victory){ctx.fillStyle='#000b';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle=victory?'#ffe082':'#ff5252';ctx.font='bold 52px Arial';ctx.fillText(victory?'사냥터 정복!':'GAME OVER',W/2,H/2-35);ctx.fillStyle='#fff';ctx.font='20px Arial';ctx.fillText(victory?'모든 몬스터를 쓰러뜨렸습니다! · P로 저장':'ENTER를 눌러 다시 시작',W/2,H/2+15);ctx.textAlign='left'}}
+function loop(){update();draw();requestAnimationFrame(loop)}loop();
 </script>
 </body>
 </html>
